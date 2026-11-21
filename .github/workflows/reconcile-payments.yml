@@ -1,0 +1,98 @@
+name: Reconcile payments
+
+# Recovers card payments whose webhook never settled. The webhook is the only push signal Hexacorp
+# gives and its retry behaviour is undocumented, so this sweeper is the RECOVERY PATH for a lost
+# delivery, not a backstop: it pulls the truth from Hexacorp for each unpaid card order on a schedule.
+#
+# Safe to run often: reconciliation is idempotent, takes status only from an authenticated Transaction
+# Inquiry, and binds the amount before marking anything paid. A run that finds nothing is a no-op.
+#
+# SETUP (repository settings):
+#   secret   RECONCILE_SECRET  must equal the RECONCILE_SECRET variable on the host
+#   variable SITE_URL          the production origin, e.g. https://yolizaperfume.example
+# A stale SITE_URL silently breaks the only safety net for a lost callback, so the job fails loudly
+# when it is unset.
+
+on:
+  schedule:
+    # Every 30 minutes: a recovery path, not the primary path (the webhook is), so latency of up to
+    # half an hour on a lost delivery is acceptable and keeps private-repo Actions minutes in budget.
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # manual "run it now"
+
+# The job needs no repository permissions at all: it only calls our own endpoint.
+permissions: {}
+
+concurrency:
+  group: reconcile-payments
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sweep stale pending card orders
+        env:
+          RECONCILE_SECRET: ${{ secrets.RECONCILE_SECRET }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RECONCILE_SECRET}" ]; then
+            echo "::error::RECONCILE_SECRET repository secret is not set."
+            exit 1
+          fi
+          if [ -z "${SITE_URL}" ]; then
+            echo "::error::SITE_URL repository variable is not set."
+            exit 1
+          fi
+          case "${SITE_URL}" in
+            https://*) ;;
+            *) echo "::error::SITE_URL must be an https URL (the bearer secret is sent with every run)."; exit 1 ;;
+          esac
+
+          # -f makes curl fail the step on a non-2xx (for example a 403 from a stale secret).
+          BODY=$(curl -fsS --max-time 120 -X POST \
+            -H "Authorization: Bearer ${RECONCILE_SECRET}" \
+            "${SITE_URL%/}/api/admin/orders/reconcile")
+
+          echo "$BODY" | jq .
+
+          SWEPT=$(echo "$BODY" | jq -r '.swept')
+          CHANGED=$(echo "$BODY" | jq -r '.changed')
+          ATTENTION=$(echo "$BODY" | jq -r '.attention // 0')
+          TRUNCATED=$(echo "$BODY" | jq -r '.truncated // false')
+          ERROR_COUNT=$(echo "$BODY" | jq -r '.errors | length')
+          echo "swept=${SWEPT} changed=${CHANGED} attention=${ATTENTION} errors=${ERROR_COUNT}"
+
+          # A recovery is not a failure, but it IS a signal that callbacks are being missed.
+          if [ "${CHANGED}" != "0" ]; then
+            echo "::warning::Recovered ${CHANGED} order(s) the webhook never settled: check why it missed them."
+            echo "$BODY" | jq -r '.outcomes[] | select(.changed) | "  \(.reference): \(.from) -> \(.to)"'
+          fi
+
+          # A budget was filled: some unsettled orders were not reached this run. Nothing is lost (the next run starts
+          # with whoever has waited longest), but a backlog that persists means too many abandoned checkouts, or the
+          # sweeper falling behind: worth knowing about before a paid order waits too long.
+          if [ "${TRUNCATED}" = "true" ]; then
+            echo "::warning::The sweep hit its per-run budget, so some unsettled orders were not checked this run."
+          fi
+
+          # An order NEEDING ATTENTION is the one outcome nothing else will ever report: a buyer may have paid
+          # and reconcile REFUSED or COULD NOT settle it (amount mismatch, a payment belonging to another order,
+          # a card order with no stored Hexacorp reference, a status it cannot map). It would sit unsettled
+          # for good. This is recoverable only if someone is TOLD, so it fails the run: a red run is the alarm.
+          if [ "${ATTENTION}" != "0" ]; then
+            echo "::error::${ATTENTION} order(s) NEED ATTENTION: a real payment may be unsettled. Review each by hand."
+            echo "$BODY" | jq -r '.outcomes[] | select(.blockedByAmountMismatch or .blockedByReferenceMismatch or .unreferenced or .unresolved) | "  \(.reference): \(if .blockedByAmountMismatch then "reported amount does not match the order total" elif .blockedByReferenceMismatch then "fetched payment belongs to a different order" elif .unreferenced then "card order has no stored Hexacorp reference_number" else "unresolved: unmapped status, contradictory records, or a confirmed payment on a closed order" end)"'
+          fi
+
+          if [ "${ERROR_COUNT}" != "0" ]; then
+            echo "::error::${ERROR_COUNT} order(s) failed to reconcile."
+            echo "$BODY" | jq -r '.errors[] | "  \(.reference): \(.message)"'
+          fi
+
+          if [ "${ATTENTION}" != "0" ] || [ "${ERROR_COUNT}" != "0" ]; then
+            exit 1
+          fi

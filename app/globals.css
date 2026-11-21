@@ -1,0 +1,111 @@
+@import '@fontsource-variable/bodoni-moda/wght.css';
+@import '@fontsource-variable/bodoni-moda/wght-italic.css';
+@import '@fontsource-variable/hanken-grotesk/wght.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: 'Bodoni Moda Variable', Georgia, serif;
+  --font-body: 'Hanken Grotesk Variable', system-ui, sans-serif;
+  --font-label: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+@layer base {
+  /* The sticky header row is 64px tall: keep anchor and skip-link targets clear of it. */
+  html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+  body { @apply bg-papier font-body text-ink antialiased; }
+  h1, h2, h3 { @apply font-display; font-optical-sizing: auto; }
+  :focus-visible { @apply outline outline-2 outline-offset-2 outline-bordeaux; }
+  .on-dark :focus-visible, .on-dark:focus-visible { @apply outline-or; }
+  ::selection { background: #E4AE55; color: #17111B; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+@layer components {
+  .container-page { @apply mx-auto w-full max-w-page px-4 sm:px-6 lg:px-10; }
+
+  /* A laboratory label: small mono caps. Used for specs, references and section markers. */
+  .label { @apply font-label text-[0.7rem] font-medium uppercase tracking-label; }
+  .label-muted { @apply label text-ink-muted; }
+  .label-on-dark { @apply label text-or-soft; }
+
+  .btn { @apply inline-flex min-h-[46px] items-center justify-center gap-2 px-6 font-label text-xs font-medium uppercase tracking-label transition-colors; }
+  .btn-primary { @apply btn bg-bordeaux text-papier hover:bg-bordeaux-dark disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-gold { @apply btn bg-or text-nuit hover:bg-papier disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-quiet { @apply btn border border-ink text-ink hover:bg-ink hover:text-papier disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-quiet-dark { @apply btn border border-papier/60 text-papier hover:bg-papier hover:text-nuit; }
+
+  .field { @apply block w-full border border-ink-muted bg-white px-3 py-3 text-base text-ink placeholder:text-ink-muted; }
+  .field-label { @apply label-muted mb-1.5 block; }
+
+  /* The signature paper: a faint fibre grain, used on paper surfaces and the hero. */
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.07;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+
+  /*
+   * The blotter strip: a perfumer's paper test strip. Cards are tall slips of card with a
+   * punched hole at the top and a torn lower edge, the bottle printed on the paper.
+   */
+  .strip-wrap {
+    display: block;
+    filter: drop-shadow(0 14px 12px rgb(27 21 32 / 0.22));
+    transition: transform 0.25s ease;
+  }
+  .strip {
+    position: relative;
+    background: #fbf7ef;
+    --tear: 7px;
+    -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(var(--tear) * 2) 100%;
+    mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(var(--tear) * 2) 100%;
+    padding-bottom: calc(var(--tear) + 1rem);
+  }
+  .strip::before {
+    content: '';
+    position: absolute;
+    top: 0.7rem;
+    left: 50%;
+    width: 0.7rem;
+    height: 0.7rem;
+    margin-left: -0.35rem;
+    border-radius: 9999px;
+    background: #17111B;
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6);
+    z-index: 2;
+  }
+  @media (hover: hover) {
+    .strip-wrap:hover, .strip-wrap:focus-visible { transform: translateY(-6px) rotate(-0.6deg); }
+  }
+
+  /* The notes ladder: three rungs connected by a vertical line. */
+  .ladder { position: relative; }
+  .ladder::before {
+    content: '';
+    position: absolute;
+    left: 0.45rem;
+    top: 0.6rem;
+    bottom: 0.6rem;
+    width: 1px;
+    background: linear-gradient(to bottom, #E4AE55, #7C2437);
+  }
+}
+
+@keyframes drift {
+  from { transform: translateY(0) rotate(var(--r, 0deg)); }
+  50% { transform: translateY(-10px) rotate(calc(var(--r, 0deg) + 0.8deg)); }
+  to { transform: translateY(0) rotate(var(--r, 0deg)); }
+}
+.drift { animation: drift 9s ease-in-out infinite; }

@@ -1,0 +1,8 @@
+# Never upload local working notes, local env files or build output to Railway.
+.superpowers
+.claude
+.env*
+.next
+node_modules
+test-results
+playwright-report
